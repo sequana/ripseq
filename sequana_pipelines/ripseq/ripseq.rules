@@ -1,0 +1,75 @@
+#
+#  This file is part of Sequana software
+#
+#  Copyright (c) 2016-2021 - Sequana Dev Team (https://sequana.readthedocs.io)
+#
+#  Distributed under the terms of the 3-clause BSD license.
+#  The full license is in the LICENSE file, distributed with this software.
+#
+#  Website:       https://github.com/sequana/sequana
+#  Documentation: http://sequana.readthedocs.io
+#  Contributors:  https://github.com/sequana/sequana/graphs/contributors
+##############################################################################
+
+"""ripseq pipeline
+
+Author: Sequana Developers
+
+This pipeline is part of Sequana project (sequana.readthedocs.io)
+
+Execution:
+1. prepare the pipelie:
+
+    sequana_ripseq --help
+
+2. exceute it either manually:
+
+    snakemake -s ripseq.rules --forceall --stats stats.txt --cores 4
+
+or following the instructions from step 1.
+"""
+
+from sequana_pipetools import snaketools as sm
+
+# This must be defined before the include
+configfile: "config.yaml"
+
+
+# A convenient manager
+manager = sm.PipelineManager("ripseq", config)
+
+rule pipeline:
+    input: "multiqc/multiqc_report.html"
+
+# ======================================================================================== multiqc
+sequana_multiqc_input = [list of files]
+include: sm.modules["multiqc/2.0"]
+
+ 
+# ======================================================================================== rulegraph
+sequana_rulegraph_mapper = {}
+
+include: sm.modules["rulegraph"]
+localrules: rulegraph, multiqc,
+
+
+
+
+# Those rules takes a couple of seconds so no need for a cluster
+localrules: multiqc, rulegraph
+
+
+onsuccess:
+    shell("chmod -R g+w .")
+    
+    import colorlog
+    log = colorlog.getLogger("sequana.ripseq")
+    log.setLevel("INFO")
+
+    manager.teardown()
+    print("Once done, please clean up the directory using\n'make clean'")
+
+onerror:
+    from sequana_pipetools.errors import PipeError
+    p = PipeError("ripseq")
+    p.status()

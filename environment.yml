@@ -1,0 +1,10 @@
+name: sequana_ripseq
+
+channels:
+- conda-forge
+- bioconda
+- defaults
+- r
+
+dependencies:
+- graphviz

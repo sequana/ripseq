@@ -1,0 +1,10 @@
+language: Snakemake
+name: sequana_ripseq
+description: RIP-seq pipeline
+url: https://github.com/sequana/sequana_ripseq/blob/master/sequana_pipelines/ripseq/ripseq.rules
+categories: [NGS, snakemake, sequana]
+authors:
+    - firstname: Thomas
+      lastname: Cokelaer
+      email: thomas.cokelaer@pasteur.fr
+
