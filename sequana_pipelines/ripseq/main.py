@@ -26,7 +26,7 @@ NAME = "ripseq"
 
 help = init_click(NAME, groups={
     "Pipeline Specific": [
-        "--method", "--skip-multiqc"],
+        "--rmethod", "--skip-multiqc"],
         }
 )
 
@@ -35,8 +35,16 @@ help = init_click(NAME, groups={
 @click.command(context_settings=help)
 @include_options_from(ClickSnakemakeOptions, working_directory=NAME)
 @include_options_from(ClickSlurmOptions)
-@include_options_from(ClickInputOptions, add_input_readtag=False)
+@include_options_from(ClickInputOptions, add_input_readtag=True)
 @include_options_from(ClickGeneralOptions)
+@click.option(
+    "--reference",
+    "reference",
+    default="TODO",
+    type=click.Path(),
+    show_default=True,
+    help="""TODO""",
+)
 @click.option(
     "--todo",
     "todo",
@@ -64,7 +72,9 @@ def main(**options):
     cfg = manager.config.config
     cfg.input_pattern = options.input_pattern
     cfg.input_directory = os.path.abspath(options.input_directory)
-    cfg.general.todo = options.todo
+    #cfg.general.todo = options.todo
+
+    cfg.reference = options.reference
 
     manager.exists(cfg.input_directory)
 

@@ -35,10 +35,11 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
-sequana = ">=0.17.0"
+sequana = ">=0.17.3"
 sequana_pipetools = ">=1.0.0"
 click-completion = "^0.5.2"
-
+pyBigWig = "^0.3.23"
+tqdm = "^4.66"
 
 [tool.poetry.scripts]
 sequana_ripseq = "sequana_pipelines.ripseq.main:main"

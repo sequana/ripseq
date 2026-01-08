@@ -53,6 +53,6 @@ jobs:
 
     - name: testing
       run: |
-        sequana_{{cookiecutter.name}} --input-directory test/data/ --use-apptainer && cd {{cookiecutter.name}} && sh {{cookiecutter.name}}.sh
+        sequana_ripseq --input-directory test/data/ --use-apptainer && cd ripseq && sh ripseq.sh
 
 

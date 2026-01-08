@@ -1,5 +1,5 @@
 # ============================================================================
-# Config file for Quality Control
+# Config file for Mapper pipeline
 # ==========================================[ Sections for the users ]========
 #
 # One of input_directory, input_pattern and input_samples must be provided
@@ -7,10 +7,11 @@
 # use it, otherwise use input_samples.
 # ============================================================================
 
+sequana_wrappers: v24.1.14
 
-input_directory: '.'
+input_directory: /home/cokelaer/Work/github/sequana_pipelines/sequana_ripseq/test/data
 input_readtag: _R[12]_
-input_pattern: '*.fastq.gz'
+input_pattern: '*fastq.gz'
 
 ################################################################################
 # extra_prefixes_to_strip
@@ -41,14 +42,123 @@ input_pattern: '*.fastq.gz'
 #
 # sample_pattern: '{sample}_mess.fastq.gz'
 
+##########################################################
+#
+general:
+    mapper: bwa
+    reference_file: ../data/sarscov2.fa
+
+
+apptainers:
+    bamtools: https://zenodo.org/record/10211475/files/bamtools_2.5.2.img
+    bedtools: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+    bowtie2: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+    bwa: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+    deeptools: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+    fastqc: https://zenodo.org/record/7015004/files/fastqc_0.11.9-py3.img
+    graphviz: https://zenodo.org/record/7928262/files/graphviz_7.0.5.img
+    minimap2: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+    multiqc: https://zenodo.org/record/10205070/files/multiqc_1.16.0.img
+    samtools: https://zenodo.org/record/7341710/files/sequana_tools_0.14.5.img
+
 
 ##############################################################################
-# Your section
+# samtools_depth
 #
 # :Parameters:
 #
-# - options: string with any valid FastQC options
-todo:
-    example1: true
+# - max_depth: by default max depth is 20,000 but can be changed here
+samtools_depth:
+    max_depth: 20000
+    resources:
+        mem: 8G
 
+##############################################################################
+# BWA MEM indexing 
+#
+bwa_index:
+    options: ''
+    threads: 4
+    resources:
+        mem: 8G
+
+##############################################################################
+# BAM alignment indexing 
+#
+bam_indexing:
+    resources:
+        mem: 8G
+
+bam2bigwig:
+    options: ''
+    resources:
+        mem: 8G
+
+filtering_bam:
+    resources:
+        mem: 8G
+
+
+bwa:
+    index_algorithm: is
+    options: -T 30 -M
+    threads: 4
+    tmp_directory: ./tmp
+    resources:
+        mem: 8G
+
+bwa_split:
+    nreads: 1000000
+    index_algorithm: is
+    options: -T 30 -M
+    threads: 4
+    tmp_directory: ./tmp
+    resources:
+        mem: 8G
+
+fastqc:
+    options: --nogroup
+    threads: 4
+    resources:
+        mem: 4G
+
+
+minimap2:
+    options: ''
+    threads: 4
+    resources:
+        mem: 8G
+
+bowtie2:
+    options: ''
+    threads: 4
+    resources:
+        mem: 8G
+
+bowtie2_index:
+    options: ''
+    threads: 4
+    resources:
+        mem: 8G
+
+bamtools_stats:
+    resources:
+        mem: 8G
+
+#############################################################################
+##   MultiQC aggregates results from bioinformatics analyses across many
+##   samples into a single report.
+##
+## :Parameters:
+##
+## - options: any options recognised by multiqc
+## - config_file: by default, we use sequana RNA-seq multiqc_config file.
+##       If you want your own multiqc, fill this entry
+multiqc:
+    options: -p -f
+    modules: fastqc bamtools  sequana_bamtools_stats
+    input_directory: .
+    config_file: multiqc_config.yaml
+    resources:
+        mem: 8G
 

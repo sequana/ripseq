@@ -28,30 +28,231 @@ Execution:
 
 or following the instructions from step 1.
 """
+import glob
+import pyBigWig
+from tqdm import tqdm
+import pandas as pd
 
 from sequana_pipetools import snaketools as sm
 
 # This must be defined before the include
 configfile: "config.yaml"
+#sequana_wrapper_branch = "main"
 
 
 # A convenient manager
 manager = sm.PipelineManager("ripseq", config)
 
+#
+#Pipeline valid for 4 replicates
+#
+
+CASES = ["24h", "48h"]
+#CHROMS = [str(x) for x in range(1,23)] + ['X', 'Y']
+
+CHROMS = ["SARSCov2_recWT"]
+
+
 rule pipeline:
-    input: "multiqc/multiqc_report.html"
+    input:
+        expand("results/{case}/{chrom}.csv", case=CASES, chrom=CHROMS),
+        "multiqc/multiqc_report.html",
+        ".sequana/rulegraph.svg"
 
-# ======================================================================================== multiqc
-sequana_multiqc_input = [list of files]
-include: sm.modules["multiqc/2.0"]
 
- 
-# ======================================================================================== rulegraph
-sequana_rulegraph_mapper = {}
+include: "rules/mapper.rules"
 
-include: sm.modules["rulegraph"]
-localrules: rulegraph, multiqc,
 
+
+rule build_normalisation:
+    input:
+        expand("{sample}/fastqc/fastqc.done", sample=manager.samples)
+    output:
+        "normalisation.txt"
+    run:
+        from sequana.fastqc import FastQC
+        import pandas as pd
+        import glob
+
+        f = FastQC()
+        for sample in manager.samples:
+            filename = glob.glob(f"{sample}/fastqc/*fastqc.zip")[0]
+            f.read_sample(filename, sample)
+
+        # make sure, the samples are in same order
+        samples = list(manager.samples.keys())
+        data = pd.DataFrame(
+            {
+                'sample': samples,
+                'reads': [f.fastqc_data[sample]['basic_statistics']['Total Sequences'] for x in samples]
+            }
+        )
+
+        data['reads_kb'] = [round(x/1000.) for x in data['reads']]
+        data['reads_mb'] = [round(x/1000000.) for x in data['reads']]
+        data['norm'] = data['reads'] /  data['reads'].mean()
+
+        print(data)
+
+        data['sample'] = [x.replace("_R1","").replace("_sample_","_").rsplit("_",1)[0] for x in data['sample']]
+        datanorm = data.set_index('sample')
+        # divide all coverage by norm
+
+
+        datanorm.to_csv("normalisation.txt", sep=",")
+
+
+def corr(IPs, INs, chrom_name, start, L, CASE):
+    normalisation = pd.read_csv("normalisation.txt", index_col="sample")
+    data = []
+    colnames = []
+    chroms = IPs[0].chroms()
+
+    for i, x in enumerate(IPs):
+        if start + L > chroms[chrom_name]:
+            L_last_chunk = chroms[chrom_name] - start
+            data.append(x.values(chrom_name, start, start+L_last_chunk))
+        else:
+            data.append(x.values(chrom_name, start, start+L))
+        colnames.append(f"IP{i+1}")
+
+    for i, x in enumerate(INs):
+        if start + L > chroms[chrom_name]:
+            L_last_chunk = chroms[chrom_name] - start
+            data.append(x.values(chrom_name, start, start+L_last_chunk))
+        else:
+            data.append(x.values(chrom_name, start, start+L))
+        colnames.append(f"IN{i+1}")
+
+    df = pd.DataFrame(data, index=colnames).T.fillna(0)
+
+
+    for i in [1,2,3,4]:
+        df[f'IN{i}'] = df[f'IN{i}'] / normalisation.loc[f"{CASE}_INPUT_{i}", "norm"]
+        df[f'IP{i}'] = df[f'IP{i}'] / normalisation.loc[f"{CASE}_IP_{i}", "norm"]
+
+    corrIP = df[[x for x in colnames if x.startswith('IP')]].corr().fillna(0).mean().mean()
+    corrIN = df[[x for x in colnames if x.startswith('IN')]].corr().fillna(0).mean().mean()
+    mean_maxIP = df[[x for x in colnames if x.startswith('IP')]].max().mean()
+    mean_maxIN =  df[[x for x in colnames if x.startswith('IN')]].max().mean()
+    return corrIP, corrIN, mean_maxIP, mean_maxIN
+
+
+def get_data(IPs, INs, chrom_name, case, start=0, stop=None, step=1000):
+
+    CIP, CIN, mmIP, mmIN = [], [], [], []
+
+    chroms = IPs[0].chroms()
+    if stop is None:
+        stop = chroms[chrom_name]
+    assert stop>start
+
+    for x in tqdm(range(start, stop, step)):
+
+        a,b,c,d = corr(IPs, INs, chrom_name, x, step, case)
+        CIP.append(a)
+        CIN.append(b)
+        mmIP.append(c)
+        mmIN.append(d)
+
+    df = pd.DataFrame({'CIP': CIP, 'CIN': CIN, 'mmIP':mmIP, 'mmIN':mmIN} )
+    df.index = list(range(start, stop, step))
+    return df
+
+
+def get_ip_files(wildcards):
+    return sorted(glob.glob(f"*/bigwig/{wildcards.case}*IP*.bw"))
+
+
+
+def get_input_files(wildcards):
+    return sorted(glob.glob(f"*/bigwig/{wildcards.case}*INPUT*.bw"))
+
+
+rule fastqc:
+    input:
+        manager.getrawdata()
+    output:
+        done = "{sample}/fastqc/fastqc.done"
+    params:
+        options= config["fastqc"]["options"],
+        working_directory= "{sample}/fastqc/"
+    threads: config["fastqc"]["threads"]
+    container:
+        config['apptainers']['fastqc']
+    log:
+        "{sample}/fastqc/fastqc.log"
+    wrapper:
+        f"{manager.wrappers}/wrappers/fastqc"
+
+
+
+rule get_data:
+    input:
+        ip_files=get_ip_files,
+        in_files=get_input_files,
+        normalisation="normalisation.txt"
+    output:
+        "results/{case}/{chrom}.csv"
+    run:
+        IPs = []
+        for filename in input.ip_files:
+            IPs.append(pyBigWig.open(filename))
+        INPUTs = []
+        for filename in input.in_files:
+            INPUTs.append(pyBigWig.open(filename))
+
+        df = get_data(IPs, INPUTs, wildcards.chrom, wildcards.case)
+        df.to_csv(output[0], index=False)
+
+
+
+# ========================================================== multiqc
+
+multiqc_params_options = config['multiqc']['options']
+if manager.config.multiqc.config_file:
+    multiqc_params_options += f" -c {manager.config.multiqc.config_file}"
+
+rule multiqc:
+    input:
+        get_multiqc_inputs()
+    output:
+       "multiqc/multiqc_report.html"
+    params:
+        options=multiqc_params_options,
+        input_directory=config['multiqc']['input_directory'],
+        config_file=config['multiqc']['config_file'],
+        modules=config['multiqc']['modules']
+    log:
+        "multiqc/multiqc.log"
+    resources:
+        **config["multiqc"]["resources"]
+    container:
+        config["apptainers"]["multiqc"]
+    wrapper:
+       f"{manager.wrappers}/wrappers/multiqc"
+
+# ========================================================== rulegraph
+rule rulegraph:
+    input: str(manager.snakefile)
+    output:
+        svg = "rulegraph/rulegraph.dot"
+    params:
+        mapper = {"multiqc": "../multiqc/multiqc_report.html"},
+        configname = "config.yaml"
+    wrapper:
+        f"{manager.wrappers}/wrappers/rulegraph"
+
+
+rule dot2svg:
+    input:
+        "rulegraph/rulegraph.dot"
+    output:
+        ".sequana/rulegraph.svg"
+    container:
+        config['apptainers']['graphviz']
+    shell:
+        """dot -Tsvg {input} -o {output}"""
 
 
 
@@ -60,16 +261,28 @@ localrules: multiqc, rulegraph
 
 
 onsuccess:
-    shell("chmod -R g+w .")
-    
+
+    from sequana import logger as log
+    from sequana.modules_report.summary import SequanaReport
+
     import colorlog
-    log = colorlog.getLogger("sequana.ripseq")
+    log = colorlog.getLogger("sequana.rnaseq")
     log.setLevel("INFO")
 
-    manager.teardown()
-    print("Once done, please clean up the directory using\n'make clean'")
+    manager.teardown(
+        extra_files_to_remove=["requirements.txt"],
+        extra_dirs_to_remove=[".genomes", "tmp", "logs"])
+    manager.clean_multiqc("multiqc/multiqc_report.html")
+
+    # Now the final report. add the original command in the HTML report
+    intro = ""
+    data = manager.getmetadata()
+    s = SequanaReport(data, intro)
+
+    shell("chmod -R g+w .")
+    shell("rm -rf rulegraph")
+
+
 
 onerror:
-    from sequana_pipetools.errors import PipeError
-    p = PipeError("ripseq")
-    p.status()
+    manager.onerror()
