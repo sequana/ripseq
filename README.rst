@@ -35,7 +35,7 @@ The pipeline identifies reproducibly enriched RNA regions by combining:
 * replicate-to-replicate correlation metrics,
 * IP vs INPUT signal comparison,
 * gene annotation,
-* optional G-quadruplex detection using G4Hunter.
+* optional G-quadruplex detection using G4Hunter implementation in Sequana.
 
 The workflow operates on sliding genomic windows and reports candidate regions showing: high correlation between IP replicates (CIP), 
 sufficient IP signal intensity, enrichment compared to INPUT controls.
@@ -43,11 +43,10 @@ sufficient IP signal intensity, enrichment compared to INPUT controls.
 Installation
 ~~~~~~~~~~~~
 
-sequana_fastqc is based on Python3, just install the package as follows::
+sequana_ripseq is based on Python3, just install the package as follows::
 
     pip install sequana_ripseq --upgrade
 
-You will need third-party software such as fastqc. Please see below for details.
 
 Usage
 ~~~~~
@@ -66,7 +65,7 @@ to execute the pipeline::
 This launch a snakemake pipeline. If you are familiar with snakemake, you can 
 retrieve the pipeline itself and its configuration files and then execute the pipeline yourself with specific parameters::
 
-    snakemake -s ripseq.rules -c config.yaml --cores 4 --stats stats.txt
+    snakemake -s ripseq.rules -c config.yaml --cores 4 
 
 
 Requirements
