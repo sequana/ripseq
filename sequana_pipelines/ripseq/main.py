@@ -26,7 +26,7 @@ NAME = "ripseq"
 
 help = init_click(NAME, groups={
     "Pipeline Specific": [
-        "--rmethod", "--skip-multiqc"],
+        "--rmethod"],
         }
 )
 
@@ -35,28 +35,28 @@ help = init_click(NAME, groups={
 @click.command(context_settings=help)
 @include_options_from(ClickSnakemakeOptions, working_directory=NAME)
 @include_options_from(ClickSlurmOptions)
-@include_options_from(ClickInputOptions, add_input_readtag=True)
+@include_options_from(ClickInputOptions, add_input_readtag=False, input_pattern="*bw")
 @include_options_from(ClickGeneralOptions)
 @click.option(
-    "--reference",
-    "reference",
-    default="TODO",
+    "--multiqc-fastqc-file",
+    "multiqc_fastqc_info",
     type=click.Path(),
-    show_default=True,
-    help="""TODO""",
+    required=True,
+    help="""A file containing at least 2 columns names 'Sample' and 'Total Sequences'. This is the format outputted by multiqc software run on several fastqc output. """,
 )
 @click.option(
-    "--todo",
-    "todo",
-    default="TODO",
-    type=click.Choice(["TODO", "OTHERS"]),
-    show_default=True,
-    help="""TODO""",
+    "--reference-file",
+    "reference_file",
+    type=click.Path(),
+    required=True,
+    help="""A file with genome reference use in the mapping (Fasta)""",
 )
 @click.option(
-    "--skip-todo",
-    is_flag=False,
-    help="""a flag""",
+    "--annotation-file",
+    "annotation_file",
+    type=click.Path(),
+    required=True,
+    help="""A file with annotation (GFF format)""",
 )
 def main(**options):
 
@@ -72,9 +72,10 @@ def main(**options):
     cfg = manager.config.config
     cfg.input_pattern = options.input_pattern
     cfg.input_directory = os.path.abspath(options.input_directory)
-    #cfg.general.todo = options.todo
+    cfg.reference_file = os.path.abspath(options.reference_file)
+    cfg.annotation_file = os.path.abspath(options.annotation_file)
 
-    cfg.reference = options.reference
+    cfg.build_normalisation.multiqc_fastqc_file = os.path.abspath(options.multiqc_fastqc_info)
 
     manager.exists(cfg.input_directory)
 

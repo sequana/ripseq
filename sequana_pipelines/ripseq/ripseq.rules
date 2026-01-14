@@ -35,10 +35,10 @@ import pandas as pd
 
 from sequana_pipetools import snaketools as sm
 
+from sequana_pipelines.ripseq.tools import get_data
+
 # This must be defined before the include
 configfile: "config.yaml"
-#sequana_wrapper_branch = "main"
-
 
 # A convenient manager
 manager = sm.PipelineManager("ripseq", config)
@@ -47,153 +47,44 @@ manager = sm.PipelineManager("ripseq", config)
 #Pipeline valid for 4 replicates
 #
 
-CASES = ["24h", "48h"]
-#CHROMS = [str(x) for x in range(1,23)] + ['X', 'Y']
-
-CHROMS = ["SARSCov2_recWT"]
+CASES = ["24h", "48h", "Mock"]
+CHROMS = [str(x) for x in range(1,23)] + ['X', 'Y']
 
 
 rule pipeline:
     input:
-        expand("results/{case}/{chrom}.csv", case=CASES, chrom=CHROMS),
-        "multiqc/multiqc_report.html",
+        expand("results/G4Hunter/analysis/{chrom}_candidates-Merged.txt", chrom=CHROMS),
+        "results/G4Hunter/G4hunter.csv",
         ".sequana/rulegraph.svg"
-
-
-include: "rules/mapper.rules"
-
 
 
 rule build_normalisation:
     input:
-        expand("{sample}/fastqc/fastqc.done", sample=manager.samples)
+        config["build_normalisation"]["multiqc_fastqc_file"]
     output:
         "normalisation.txt"
     run:
-        from sequana.fastqc import FastQC
-        import pandas as pd
-        import glob
-
-        f = FastQC()
-        for sample in manager.samples:
-            filename = glob.glob(f"{sample}/fastqc/*fastqc.zip")[0]
-            f.read_sample(filename, sample)
-
-        # make sure, the samples are in same order
-        samples = list(manager.samples.keys())
-        data = pd.DataFrame(
-            {
-                'sample': samples,
-                'reads': [f.fastqc_data[sample]['basic_statistics']['Total Sequences'] for x in samples]
-            }
-        )
-
-        data['reads_kb'] = [round(x/1000.) for x in data['reads']]
-        data['reads_mb'] = [round(x/1000000.) for x in data['reads']]
-        data['norm'] = data['reads'] /  data['reads'].mean()
-
-        print(data)
-
-        data['sample'] = [x.replace("_R1","").replace("_sample_","_").rsplit("_",1)[0] for x in data['sample']]
-        datanorm = data.set_index('sample')
-        # divide all coverage by norm
-
-
-        datanorm.to_csv("normalisation.txt", sep=",")
-
-
-def corr(IPs, INs, chrom_name, start, L, CASE):
-    normalisation = pd.read_csv("normalisation.txt", index_col="sample")
-    data = []
-    colnames = []
-    chroms = IPs[0].chroms()
-
-    for i, x in enumerate(IPs):
-        if start + L > chroms[chrom_name]:
-            L_last_chunk = chroms[chrom_name] - start
-            data.append(x.values(chrom_name, start, start+L_last_chunk))
-        else:
-            data.append(x.values(chrom_name, start, start+L))
-        colnames.append(f"IP{i+1}")
-
-    for i, x in enumerate(INs):
-        if start + L > chroms[chrom_name]:
-            L_last_chunk = chroms[chrom_name] - start
-            data.append(x.values(chrom_name, start, start+L_last_chunk))
-        else:
-            data.append(x.values(chrom_name, start, start+L))
-        colnames.append(f"IN{i+1}")
-
-    df = pd.DataFrame(data, index=colnames).T.fillna(0)
-
-
-    for i in [1,2,3,4]:
-        df[f'IN{i}'] = df[f'IN{i}'] / normalisation.loc[f"{CASE}_INPUT_{i}", "norm"]
-        df[f'IP{i}'] = df[f'IP{i}'] / normalisation.loc[f"{CASE}_IP_{i}", "norm"]
-
-    corrIP = df[[x for x in colnames if x.startswith('IP')]].corr().fillna(0).mean().mean()
-    corrIN = df[[x for x in colnames if x.startswith('IN')]].corr().fillna(0).mean().mean()
-    mean_maxIP = df[[x for x in colnames if x.startswith('IP')]].max().mean()
-    mean_maxIN =  df[[x for x in colnames if x.startswith('IN')]].max().mean()
-    return corrIP, corrIN, mean_maxIP, mean_maxIN
-
-
-def get_data(IPs, INs, chrom_name, case, start=0, stop=None, step=1000):
-
-    CIP, CIN, mmIP, mmIN = [], [], [], []
-
-    chroms = IPs[0].chroms()
-    if stop is None:
-        stop = chroms[chrom_name]
-    assert stop>start
-
-    for x in tqdm(range(start, stop, step)):
-
-        a,b,c,d = corr(IPs, INs, chrom_name, x, step, case)
-        CIP.append(a)
-        CIN.append(b)
-        mmIP.append(c)
-        mmIN.append(d)
-
-    df = pd.DataFrame({'CIP': CIP, 'CIN': CIN, 'mmIP':mmIP, 'mmIN':mmIN} )
-    df.index = list(range(start, stop, step))
-    return df
+        from sequana_pipelines.ripseq.tools import build_normalisation
+        bn = build_normalisation(input[0], output[0])
 
 
 def get_ip_files(wildcards):
-    return sorted(glob.glob(f"*/bigwig/{wildcards.case}*IP*.bw"))
-
+    return sorted(glob.glob(f"../data/{wildcards.case}*IP*.bw"))
 
 
 def get_input_files(wildcards):
-    return sorted(glob.glob(f"*/bigwig/{wildcards.case}*INPUT*.bw"))
+    return sorted(glob.glob(f"../data/{wildcards.case}*INPUT*.bw"))
 
 
-rule fastqc:
-    input:
-        manager.getrawdata()
-    output:
-        done = "{sample}/fastqc/fastqc.done"
-    params:
-        options= config["fastqc"]["options"],
-        working_directory= "{sample}/fastqc/"
-    threads: config["fastqc"]["threads"]
-    container:
-        config['apptainers']['fastqc']
-    log:
-        "{sample}/fastqc/fastqc.log"
-    wrapper:
-        f"{manager.wrappers}/wrappers/fastqc"
-
-
-
-rule get_data:
+rule compute_correlations:
     input:
         ip_files=get_ip_files,
         in_files=get_input_files,
         normalisation="normalisation.txt"
     output:
-        "results/{case}/{chrom}.csv"
+        csv="results/{case}/correlations/{chrom}.csv"
+    params:
+        step=config["correlations"]["step"]
     run:
         IPs = []
         for filename in input.ip_files:
@@ -202,43 +93,274 @@ rule get_data:
         for filename in input.in_files:
             INPUTs.append(pyBigWig.open(filename))
 
-        df = get_data(IPs, INPUTs, wildcards.chrom, wildcards.case)
-        df.to_csv(output[0], index=False)
+        df = get_data(
+            IPs,
+            INPUTs,
+            wildcards.chrom,
+            wildcards.case,
+            step=params.step,
+            norm_file=input.normalisation)
+        df.to_csv(output.csv, index=False)
 
 
-
-# ========================================================== multiqc
-
-multiqc_params_options = config['multiqc']['options']
-if manager.config.multiqc.config_file:
-    multiqc_params_options += f" -c {manager.config.multiqc.config_file}"
-
-rule multiqc:
+rule get_events:
     input:
-        get_multiqc_inputs()
+        results="results/{case}/correlations/{chrom}.csv",
+        gff=config['annotation_file']
     output:
-       "multiqc/multiqc_report.html"
+        "results/{case}/events/{chrom}.csv"
     params:
-        options=multiqc_params_options,
-        input_directory=config['multiqc']['input_directory'],
-        config_file=config['multiqc']['config_file'],
-        modules=config['multiqc']['modules']
-    log:
-        "multiqc/multiqc.log"
-    resources:
-        **config["multiqc"]["resources"]
-    container:
-        config["apptainers"]["multiqc"]
-    wrapper:
-       f"{manager.wrappers}/wrappers/multiqc"
+        step=config['correlations']['step'],
+        CIP=config['detection']['CIP'],
+        min_IP=config['detection']['min_IP'],
+        ratio=config['detection']['ratio']
+    run:
+        from sequana import GFF3
+        gff = GFF3(input.gff)
+        from sequana_pipelines.ripseq.tools import get_events
+        gff.df['gene_name'] = gff.df['Name']
+        dd = get_events(
+            input.results,
+            wildcards.chrom,
+            params.step,
+            gff,
+            CIP=params.CIP,
+            min_IP=params.min_IP,
+            ratio=params.ratio,
+            mycase=wildcards.case)
+        dd.to_csv(output[0], index=False)
 
+
+rule plot_grouped:
+    """Plot a peak overview for each significant candidate"""
+    input:
+        csv = rules.get_events.output[0],
+        ip_files=get_ip_files,
+        in_files=get_input_files,
+        normalisation="normalisation.txt"
+    output:
+        "results/{case}/images/{chrom}.done"
+    params:
+        step = 1000
+    run:
+        from sequana_pipelines.ripseq.tools import plot_grouped
+        import pandas as pd
+        from pylab import clf, savefig, title, ylim, fill_between
+        df = pd.read_csv(input.csv)
+        case = wildcards.case
+        import numpy as np
+        import pyBigWig
+        IPs = [pyBigWig.open(x) for x in input.ip_files]
+        INPUTs = [pyBigWig.open(x) for x in input.in_files]
+
+        datanorm = pd.read_csv(input.normalisation)
+        for _, row in df.iterrows():
+            position = int(row['position'])
+            start = str(row['start'])
+            stop = str(row['stop'])
+            try:
+                chrom = str(int(row['chrom']))
+            except:
+                chrom = str(row['chrom'])
+            clf()
+            plot_grouped(IPs, INPUTs, chrom, position, position + params.step, datanorm)
+            CIP = round(row['CIP'], 2)
+            ratio = round(row['ratio'], 2)
+            mmIP = round(row['mmIP'], 2)
+
+            def is_nan(x):
+                return isinstance(x, (float, np.floating)) and np.isnan(x)
+
+            if not is_nan(row['gene_id']):
+                geneid = ",".join(row['gene_name'].split("/"))
+                title(f"{chrom}:{position}-{position+params.step}; CIP={CIP} ratio={ratio}, mmIP={mmIP}\n{geneid}", fontsize=12)
+            else:
+                title(f"{chrom}:{position}-{position+params.step}; CIP={CIP} ratio={ratio}, mmIP={mmIP}", fontsize=12)
+            import os
+            os.makedirs(f"results/{case}/images", exist_ok=True)
+            savefig(f"results/{case}/images/{chrom}_{position}.png")
+        with open(f"results/{case}/images/{chrom}.done", "w") as fout:
+            fout.write("")
+
+
+rule unique_candidates:
+    input:
+        csv=expand("results/{case}/events/{chrom}.csv", case=CASES, chrom=CHROMS)
+    output:
+        csv="results/unique_candidates.csv"
+    run:
+
+        events = []
+        for case in CASES:
+            filenames = glob.glob(f"results/{case}/events/*.csv")
+            for filename in filenames:
+                df = pd.read_csv(filename)
+                df['case'] = case
+                events.append(df)
+        candidates = pd.concat(
+            events,
+            axis=0)
+        candidates = candidates[~candidates[['chrom', 'position']].duplicated()]
+        candidates.to_csv(output.csv, index=False)
+
+
+rule plot_grouped_3cases:
+    input:
+        csv = expand("results/{case}/events/{chrom}.csv", case=CASES, chrom=CHROMS),
+        candidates=rules.unique_candidates.output.csv,
+        normalisation="normalisation.txt"
+    output:
+        "results/All/done"
+    run:
+        from sequana_pipelines.ripseq.tools import plot_grouped
+        import pandas as pd
+        from pylab import clf, savefig, title, ylim, fill_between   
+        import pyBigWig
+        import numpy as np
+
+        final = {}
+        step = 1000
+        window_side = 1000
+
+        all_IPs = {}
+        all_INs = {}
+        all_dfs = {}
+        for case in CASES:
+            import pyBigWig
+            IPs = glob.glob(f"../data/{case}*IP*.bw")
+            INPUTs = glob.glob(f"../data/{case}*INPUT*.bw")
+            all_IPs[case] = [pyBigWig.open(x) for x in IPs]
+            all_INs[case] = [pyBigWig.open(x) for x in INPUTs]
+ 
+
+        results = []    
+        candidates = pd.read_csv(input.candidates)
+
+        datanorm = pd.read_csv(input.normalisation)
+        from tqdm import tqdm
+        for _, candidate in tqdm(candidates.iterrows()):
+            position = int(candidate['position'])
+            try:
+                chrom = str(int(candidate['chrom']))
+            except:
+                chrom = str(candidate['chrom'])
+            result = []
+            result.append(position)
+            result.append(chrom)
+
+            for case in CASES:
+
+                clf()
+                plot_grouped(all_IPs[case], all_INs[case], chrom, position, position+window_side, datanorm)
+                pos = int(position / step)
+                CIP_t = round(candidate.CIP, 2)
+                ratio_t = round((candidate.mmIP) / (1+candidate.mmIN),2)
+                mmIP_t = round(candidate.mmIP, 2)
+                result.append(CIP_t)
+                result.append(candidate.mmIP)
+                result.append(candidate.mmIN)
+                result.append(ratio_t)
+
+                def is_nan(x):
+                    return isinstance(x, (float, np.floating)) and np.isnan(x)
+
+                if not is_nan(candidate['gene_id']):
+                    gene_names = candidate['gene_name']
+                    title(f"{chrom}:{position}-{position+step}; CIP={CIP_t} ratio={ratio_t}, mmIP={mmIP_t}\n{gene_names}", fontsize=12)
+                else:
+                    title(f"{chrom}:{position}-{position+step}; CIP={CIP_t} ratio={ratio_t}, mmIP={mmIP_t}", fontsize=12)
+                import os
+                os.makedirs(f"results/All", exist_ok=True)
+                os.makedirs(f"results/All/{case}", exist_ok=True)
+                savefig(f"results/All/{case}/{chrom}_{position}.png")
+
+            gene_names = candidate['gene_name']
+            gene_ids = candidate['gene_id']
+            starts = candidates['start']
+            stops = candidates['stop']
+            result.append(gene_names)
+            result.append(gene_ids)
+            result.append(starts)
+            result.append(stops)
+            results.append(result)
+
+        with open(output[0], "w") as fout:
+            fout.write("")
+        df = pd.DataFrame(results)
+
+        # order must follows ther CASES. FIXE
+        df.columns = ["position", "chrom", 
+              "24h_CIP", "24h_mmIP", "24h_mmIN", "24h_ratio", 
+              "48h_CIP", "48h_mmIP", "48h_mmIN", "48h_ratio",
+              "Mock_CIP", "Mock_mmIP", "Mock_mmIN", "Mock_ratio",
+              "gene_names", "gene_ids", "starts", "stops"]
+
+        df.to_csv("results/All/all.csv")
+
+
+rule build_fasta:
+    input:
+        fasta = config['reference_file'],
+        candidates = "results/unique_candidates.csv"
+    output:
+        expand("results/G4Hunter/fasta/{chrom}_candidates.fa", chrom=CHROMS)
+    params:
+        step=1000,
+        delta=20
+    run:
+        from sequana import FastA
+        f = FastA(input.fasta)
+
+        candidates = pd.read_csv(input.candidates)
+        for a in f:
+            chrom = a.name
+            if chrom.startswith("GL") is False:
+                with open(f"results/G4Hunter/fasta/{chrom}_candidates.fa", "w") as fout:
+                    for x in candidates.query("chrom==@chrom").position.values:
+                        seq = a.sequence[x-params.delta:x+params.step+params.delta]  #+- 20 for window size
+                        fout.write(f">{chrom}_{x}\n{seq}\n")
+
+
+rule G4:
+    input:
+        fasta=expand("results/G4Hunter/fasta/{chrom}_candidates.fa", chrom=CHROMS)
+    output:
+        g4=expand("results/G4Hunter/analysis/{chrom}_candidates-Merged.txt", chrom=CHROMS),
+        g4_merged="results/G4Hunter/G4hunter.csv"
+    params:
+        window=config['G4']['window'],
+        score=config['G4']['score']
+    run:
+        import pandas as pd
+        from sequana.G4hunter import G4Hunter
+        for filename in input.fasta:
+            print(filename)
+            chrom=filename.split("/")[-1].split("_")[0]
+            g4 = G4Hunter(filename, window=params.window, score=params.score)
+            g4.run(f"results/G4Hunter/analysis")
+
+        # merge the results
+        from sequana import G4hunter
+        g4 = G4hunter.G4HunterReader()
+        g4.load_files("results/G4Hunter/analysis//*Merged*txt")
+
+        df = pd.concat(g4.data_merged) 
+        df = df.reset_index()
+        del df['level_1']
+        df['chrom'] = [x.split("_")[0] for x in df['level_0'].values]
+        df['position_window'] = [x.split("_")[1] for x in df['level_0'].values]
+        df['position'] = [int(x.split("_")[1])  for x in df['level_0'].values] + df['Start'].values
+        del df['level_0']
+        df = df[["chrom", "position", "position_window", "Start", "End", "Sequence", "Length", "Score", "NBR"]]
+        df['Sequence'] = [x.upper() for x in df['Sequence']]
+        df.to_csv(output.g4_merged, sep=",", index=None)
 # ========================================================== rulegraph
-rule rulegraph:
+rule build_rulegraph:
     input: str(manager.snakefile)
     output:
         svg = "rulegraph/rulegraph.dot"
     params:
-        mapper = {"multiqc": "../multiqc/multiqc_report.html"},
+        mapper = {},
         configname = "config.yaml"
     wrapper:
         f"{manager.wrappers}/wrappers/rulegraph"
@@ -246,7 +368,7 @@ rule rulegraph:
 
 rule dot2svg:
     input:
-        "rulegraph/rulegraph.dot"
+        rules.build_rulegraph.output.svg
     output:
         ".sequana/rulegraph.svg"
     container:
@@ -257,7 +379,7 @@ rule dot2svg:
 
 
 # Those rules takes a couple of seconds so no need for a cluster
-localrules: multiqc, rulegraph
+localrules: build_rulegraph
 
 
 onsuccess:
@@ -272,7 +394,6 @@ onsuccess:
     manager.teardown(
         extra_files_to_remove=["requirements.txt"],
         extra_dirs_to_remove=[".genomes", "tmp", "logs"])
-    manager.clean_multiqc("multiqc/multiqc_report.html")
 
     # Now the final report. add the original command in the HTML report
     intro = ""
@@ -281,8 +402,6 @@ onsuccess:
 
     shell("chmod -R g+w .")
     shell("rm -rf rulegraph")
-
-
 
 onerror:
     manager.onerror()

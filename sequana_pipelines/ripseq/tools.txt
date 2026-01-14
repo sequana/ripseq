@@ -1,9 +1,1 @@
-bwa
 samtools
-bedtools
-bamtools
-deeptools
-fastqc
-minimap2
-bowtie2
-

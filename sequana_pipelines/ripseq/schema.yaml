@@ -14,3 +14,41 @@ mapping:
     "input_pattern":
         type: str
         required: False
+    "reference_file":
+        type: str
+        required: True
+    "annotation_file":
+        type: str
+        required: True
+    "apptainers": 
+        type: any
+
+
+    "build_normalisation":
+        type: map
+        mapping:
+            "multiqc_fastqc_file":
+                type: str
+    "correlations":
+        type: map
+        mapping:
+            "step":
+                type: int
+    "detection":
+        type: map
+        mapping:
+            "CIP":
+                type: float
+            "min_IP":
+                type: float
+            "ratio":
+                type: float
+    "G4":
+        type: map
+        mapping:
+            "window":
+                type: int
+            "score":
+                type: float
+        
+  
