@@ -21,12 +21,24 @@
 
 This is is the **ripseq** pipeline from the `Sequana <https://sequana.readthedocs.org>`_ project
 
-:Overview: TODO 
-:Input: TODO
-:Output: TODO
+:Overview: pipeline dedicated to the analysis of RIP-seq (RNA ImmunoPrecipitation sequencing)
+:Input: BigWig files
+:Output: Candidates and G4 analysis
 :Status: draft
 :Citation: Cokelaer et al, (2017), ‘Sequana’: a Set of Snakemake NGS pipelines, Journal of Open Source Software, 2(16), 352, JOSS DOI doi:10.21105/joss.00352
 
+Overview
+~~~~~~~~~
+sequana_ripseq is a Snakemake pipeline dedicated to the analysis of RIP-seq (RNA ImmunoPrecipitation sequencing) experiments using precomputed coverage tracks (BigWig files).
+The pipeline identifies reproducibly enriched RNA regions by combining:
+
+* replicate-to-replicate correlation metrics,
+* IP vs INPUT signal comparison,
+* gene annotation,
+* optional G-quadruplex detection using G4Hunter.
+
+The workflow operates on sliding genomic windows and reports candidate regions showing: high correlation between IP replicates (CIP), 
+sufficient IP signal intensity, enrichment compared to INPUT controls.
 
 Installation
 ~~~~~~~~~~~~
@@ -56,39 +68,12 @@ retrieve the pipeline itself and its configuration files and then execute the pi
 
     snakemake -s ripseq.rules -c config.yaml --cores 4 --stats stats.txt
 
-Or use `sequanix <https://sequana.readthedocs.io/en/main/sequanix.html>`_ interface.
-
-
-Usage with apptainer / singularity::
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-With Apptainer, initiate the working directory as follows::
-
-    sequana_ripseq --use-apptainer
-
-Images are downloaded in the working directory but you can store then in a directory globally (e.g.)::
-
-    sequana_ripseq --use-apptainer --apptainer-prefix ~/.sequana/apptainers
-
-and then::
-
-    cd ripseq
-    sh ripseq.sh
-
-if you decide to use snakemake manually, do not forget to add apptainer options::
-
-    snakemake -s ripseq.rules -c config.yaml --cores 4 --stats stats.txt --use-apptainer --apptainer-prefix ~/.sequana/apptainers --apptainer-args "-B /home:/home"
-
-By default, the home is already set for you. Additional binding path can be set using environment variables e.g.::
-
-    export APPTAINER_BINDPATH=" -B /pasteur"
 
 Requirements
 ~~~~~~~~~~~~
 
-This pipelines requires the following executable(s):
+This pipelines requires Sequana and its dependencies including pyBigWig and no third-party tools
 
-- TODO
 
 .. image:: https://raw.githubusercontent.com/sequana/sequana_ripseq/main/sequana_pipelines/ripseq/dag.png
 
@@ -96,8 +81,11 @@ This pipelines requires the following executable(s):
 Details
 ~~~~~~~~~
 
-This pipeline runs **ripseq** in parallel on the input fastq files (paired or not). 
-A brief sequana summary report is also produced.
+* Designed for experiments with 4 replicates per condition
+* Supports multiple cases (e.g. 24h / 48h / Mock)
+* Correlation-based strategy increases robustness to noisy IP signal
+* Integration with G4Hunter enables structural RNA analysis
+
 
 
 Rules and configuration details
